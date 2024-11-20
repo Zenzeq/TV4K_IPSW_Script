@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # This is a script to make a ipsw for the apple tv 4k, many thanks to the 14.8.1 script
+# Fixed by Zenzeq to make this script great again.
 
 if [ -z "$1" ] & [ -z "$2" ]; then
     echo "Usage: pathorlinktoota linkorpathtotv4ipsw" && exit 1
