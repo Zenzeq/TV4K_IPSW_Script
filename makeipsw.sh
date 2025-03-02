@@ -3,7 +3,7 @@
 # Fixed by Zenzeq to make this script great again.
 
 if [ -z "$1" ] & [ -z "$2" ]; then
-    echo "Usage: pathorlinktoota linkorpathtotv4ipsw" && exit 1
+    echo "Usage: /path/to/ota.zip /path/to/HD.ipsw" && exit 1
 fi
 
 set -e
@@ -38,7 +38,12 @@ find ../payloadv2 -name 'payload.[0-9][0-9][0-9]' -print -exec sudo aa extract -
 sudo aa extract -i ../payloadv2/fixup.manifest || true
 sudo aa extract -i ../payloadv2/data_payload
 sudo chown -R 0:0 ../payload/replace/*
+
+echo "Copying... This may take a while, please wait."
+
 sudo cp -a ../payload/replace/* .
+
+echo "Copy complete."
 
 #for app in ../payloadv2/app_patches/*.app; do
 #    appname=$(echo $app | cut -d/ -f4)
@@ -67,10 +72,15 @@ asr imagescan --source converted.dmg
 cd ../..
 
 cd ipsw
+
+echo "Copying, please wait..."
+
 cp -r ../ota/AssetData/boot/Firmware .
 cp ../ota/AssetData/boot/kernelcache.release.* .
 
 cp ../ota/AssetData/boot/BuildManifest.plist .
+
+echo "Copy complete."
 
 chmod u+w BuildManifest.plist # seemingly only needed on 18, odd
 /usr/libexec/PlistBuddy -c "Set :BuildIdentities:0:Info:RestoreBehavior Erase" BuildManifest.plist
@@ -164,4 +174,3 @@ cd ../../
 sudo rm -rf work | true
 
 echo "Done! Your new ipsw is in ipsws/AppleTV6,2_${ipsw_version}_${ipsw_buildnumber}_Restore.ipsw"
-echo "Please use my fork of futurerestore to restore in pwned dfu mode, manually specifying the sep, from here: https://github.com/verygenericname/futurerestore/actions"
