@@ -8,6 +8,18 @@ fi
 
 set -e
 
+sum=$(shasum -a 256 $1 | cut -d' ' -f1)
+
+if [ $sum = "8725797b4ddfd93fc67023c93c1d9277f128e9731a9ac18618b9b2e812c027c1" ] ; then
+
+echo "13.4.8 detected. The script is incompatible for this version. Please use firmwares between tvOS 14 - latest." && exit 1
+
+else
+
+echo "Unzipping..."
+
+fi
+
 mkdir -p ipsws
 sudo rm -rf work | true
 sudo rm -f /tmp/BI0.plist | true
