@@ -8,6 +8,27 @@ fi
 
 set -e
 
+progress() {
+    local current=$1
+    local total=$2
+
+    local percent=$((100 * current / total))
+    local filled=$((percent / 2))
+    local empty=$((50 - filled))
+
+    printf "\r["
+
+    for ((i=0; i<filled; i++)); do
+        printf "#"
+    done
+
+    for ((i=0; i<empty; i++)); do
+        printf "-"
+    done
+
+    printf "] %3d%%" "$percent"
+}
+
 sum=$(shasum -a 256 $1 | cut -d' ' -f1)
 
 if [ $sum = "8725797b4ddfd93fc67023c93c1d9277f128e9731a9ac18618b9b2e812c027c1" ] ; then
@@ -36,62 +57,187 @@ fi
 # create work dir
 mkdir -p work/ota work/ipsw
 
-# unzip ota
+
+
 cd work/ota
-if [ ! -e $1 ]; then
-unzip ../../downloads/*
+
+if [ ! -e "$1" ]; then
+    unzip ../../downloads/* | while IFS= read -r line; do
+        case "$line" in
+            *inflating:*|*extracting:*)
+                printf "\rCurrently: %s" "${line#*: }"
+                ;;
+        esac
+    done
+    echo
 else
-unzip $1
+    unzip "$1" | while IFS= read -r line; do
+        case "$line" in
+            *inflating:*|*extracting:*)
+                printf "\rCurrently: %s" "${line#*: }"
+                ;;
+        esac
+    done
+    echo
 fi
 
-mkdir AssetData/rootfs
+# unzip ota
+# cd work/ota
+#if [ ! -e $1 ]; then
+#unzip ../../downloads/*
+#else
+#unzip $1
+#fi
+
+
+mkdir -p AssetData/rootfs
 cd AssetData/rootfs
-find ../payloadv2 -name 'payload.[0-9][0-9][0-9]' -print -exec sudo aa extract -i {} \;
-sudo aa extract -i ../payloadv2/fixup.manifest || true
-sudo aa extract -i ../payloadv2/data_payload
+
+find ../payloadv2 -name 'payload.[0-9][0-9][0-9]' -print0 | while IFS= read -r -d '' payload; do
+    printf "\rCurrently: %s" "$(basename "$payload")"
+    sudo aa extract -i "$payload" | while IFS= read -r line; do
+        printf "\rCurrently: %s" "$line"
+    done
+done
+
+printf "\rCurrently: fixup.manifest"
+sudo aa extract -i ../payloadv2/fixup.manifest 2>/dev/null | while IFS= read -r line; do
+    printf "\rCurrently: %s" "$line"
+done || true
+
+printf "\rCurrently: data_payload"
+sudo aa extract -i ../payloadv2/data_payload | while IFS= read -r line; do
+    printf "\rCurrently: %s" "$line"
+done
+
+echo
 sudo chown -R 0:0 ../payload/replace/*
+
+# mkdir AssetData/rootfs
+# cd AssetData/rootfs
+# find ../payloadv2 -name 'payload.[0-9][0-9][0-9]' -print -exec sudo aa extract -i {} \;
+# sudo aa extract -i ../payloadv2/fixup.manifest || true
+# sudo aa extract -i ../payloadv2/data_payload
+# sudo chown -R 0:0 ../payload/replace/*
 
 echo "Copying... This may take a while, please wait."
 
-sudo cp -a ../payload/replace/* .
+src="../payload/replace"
 
+total=$(find "$src" -type f | wc -l | tr -d ' ')
+current=0
+
+progress 0 100
+
+find "$src" -mindepth 1 -print | while read -r item; do
+
+    rel="${item#$src/}"
+    dest="./$rel"
+
+    if [ -d "$item" ]; then
+        sudo mkdir -p "$dest"
+    else
+        sudo mkdir -p "$(dirname "$dest")"
+        sudo cp -a "$item" "$dest"
+        current=$((current + 1))
+
+        percent=$((100 * current / total))
+        progress "$percent" 100
+    fi
+
+done
+
+echo
 echo "Copy complete."
 
-#for app in ../payloadv2/app_patches/*.app; do
-#    appname=$(echo $app | cut -d/ -f4)
-#    sudo mkdir -p "private/var/staged_system_apps/$appname"
-#    sudo cp -a "$app" "private/var/staged_system_apps/$appname"
-#    pushd "private/var/staged_system_apps/$appname"
-#    sudo 7z x "$appname" || true;
-#    sudo aa extract -i $(echo "$appname" | cut -d. -f1)|| true;
-#    sudo rm "$appname"
-#    popd
-#done
-
-# make the root dmg
 cd ..
+echo "Building DMG... This may take a while."
+
+total=4
+current=0
+
+progress "$current" "$total"
+echo
+
 cp ../../../template.dmg output.dmg
-hdiutil resize -size 10000m output.dmg
-sudo hdiutil attach output.dmg -owners on
-sudo mount -urw /Volumes/Template
+
+hdiutil resize -size 15000m output.dmg >/dev/null
+sudo hdiutil attach output.dmg -owners on >/dev/null
+sudo mount -urw /Volumes/Template >/dev/null
+
+current=$((current + 1))
+progress "$current" "$total"
+printf "\rCurrently: Copying root filesystem...\n"
 sudo rsync -a rootfs/ /Volumes/Template/
-sudo diskutil rename /Volumes/Template $VOLUME_NAME
-hdiutil detach /Volumes/$VOLUME_NAME -force
-hdiutil resize -sectors min output.dmg
-hdiutil convert -format ULFO -o converted.dmg output.dmg
-rm output.dmg
-asr imagescan --source converted.dmg
+
+current=$((current + 1))
+progress "$current" "$total"
+printf "\rCurrently: Renaming volume...\n"
+sudo diskutil rename /Volumes/Template "$VOLUME_NAME" 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+current=$((current + 1))
+progress "$current" "$total"
+printf "\rCurrently: Finalizing DMG...\n"
+
+hdiutil detach "/Volumes/$VOLUME_NAME" -force 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+hdiutil resize -sectors min output.dmg 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+hdiutil convert -format ULFO -o converted.dmg output.dmg 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+rm output.dmg 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+current=$((current + 1))
+progress "$current" "$total"
+printf "\rCurrently: Scanning image...\n"
+
+asr imagescan --source converted.dmg 2>&1 | while IFS= read -r line; do
+    printf "\033[1A\r%-80s\n\rCurrently: %s\033[K" "$(progress "$current" "$total")" "$line"
+done
+
+echo
+echo "DMG build complete."
+
 cd ../..
 
 cd ipsw
 
 echo "Copying, please wait..."
 
+total=3
+current=0
+
+progress "$current" "$total"
+
+
+
 cp -r ../ota/AssetData/boot/Firmware .
+current=$((current + 1))
+progress "$current" "$total"
+
+
+
 cp ../ota/AssetData/boot/kernelcache.release.* .
+current=$((current + 1))
+progress "$current" "$total"
+
+
 
 cp ../ota/AssetData/boot/BuildManifest.plist .
+current=$((current + 1))
+progress "$current" "$total"
 
+echo
 echo "Copy complete."
 
 chmod u+w BuildManifest.plist # seemingly only needed on 18, odd
